@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Security Monitor | Export Capable</title>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        bg: { main: '#F5F7FA', surface: '#FFFFFF' },
+                        primary: { DEFAULT: '#06C755', hover: '#05b04b' },
+                        secondary: '#2196F3',
+                        text: { primary: '#2F3136', secondary: '#72767D' },
+                        border: '#E3E5E8',
+                        danger: '#FF4B4B',
+                        warning: '#FBBF24'
+                    },
+                    fontFamily: {
+                        sans: ['"Noto Sans JP"', 'sans-serif'],
+                    },
+                    boxShadow: {
+                        'soft': '0 2px 5px rgba(0,0,0,0.03)',
+                        'float': '0 8px 24px rgba(0,0,0,0.08)',
+                        'glow': '0 4px 12px rgba(6, 199, 85, 0.25)',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            background-color: #F5F7FA;
+            color: #2F3136;
+            -webkit-font-smoothing: antialiased;
+        }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #E3E5E8; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #D1D5DB; }
+
+        .fade-in { animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .btn-press { transition: transform 0.1s ease; }
+        .btn-press:active { transform: scale(0.96); }
+        
+        @keyframes flash {
+            0% { opacity: 1; }
+            100% { opacity: 0; }
+        }
+        .flash-effect {
+            position: absolute;
+            inset: 0;
+            background: white;
+            opacity: 0;
+            pointer-events: none;
+            z-index: 50;
+        }
+        .animate-flash {
+            animation: flash 0.5s ease-out;
+        }
+
+        .glass {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+        }
+    </style>
+</head>
+<body class="h-screen flex overflow-hidden selection:bg-primary selection:text-white">
+
+    <aside class="w-64 bg-bg-surface border-r border-border hidden md:flex flex-col z-20 shadow-soft">
+        <div class="p-6 flex items-center gap-3">
+            <div class="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-white shadow-glow">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+            </div>
+            <h1 class="font-black text-lg tracking-tight text-text-primary">AI Monitor</h1>
+        </div>
+
+        <nav class="flex-1 px-4 space-y-1 mt-4">
+            <a href="#" class="flex items-center gap-3 px-4 py-3 text-primary bg-green-50 rounded-xl font-bold transition-all">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+                ダッシュボード
+            </a>
+            <button id="historyBtn" class="w-full flex items-center gap-3 px-4 py-3 text-text-secondary hover:bg-gray-50 rounded-xl font-medium transition-all group text-left">
+                <svg class="group-hover:text-text-primary transition-colors" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                ログ履歴 (ギャラリー)
+                <span id="badgeCount" class="hidden ml-auto bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">0</span>
+            </button>
+            <button id="aboutBtnSidebar" class="w-full flex items-center gap-3 px-4 py-3 text-text-secondary hover:bg-gray-50 rounded-xl font-medium transition-all group text-left">
+                <svg class="group-hover:text-text-primary transition-colors" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                アプリについて
+            </button>
+        </nav>
+
+        <div class="p-4 border-t border-border">
+            <div class="bg-blue-50 border border-blue-100 rounded-xl p-4">
+                <div class="flex items-center gap-2 mb-2 text-blue-600">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                    <span class="text-xs font-bold" id="storageModeLabel">Checking Storage...</span>
+                </div>
+                <p class="text-[10px] text-blue-800 leading-relaxed" id="storageModeDesc">
+                    ストレージ状態を確認中...
+                </p>
+            </div>
+        </div>
+    </aside>
+
+    <main class="flex-1 flex flex-col min-w-0 overflow-hidden relative">
+        <header class="h-16 flex items-center justify-between px-6 bg-bg-main/90 z-10 sticky top-0">
+            <div class="flex items-center gap-2 md:hidden">
+                <span class="font-bold text-text-primary">AI Monitor</span>
+            </div>
+            
+            <div class="hidden md:block">
+                <h2 class="text-xl font-bold text-text-primary">監視エリア</h2>
+                <p class="text-xs text-text-secondary">AIによるリアルタイム侵入検知 & 自動保存</p>
+            </div>
+
+            <div class="flex items-center gap-3">
+                 <button id="soundToggleBtn" class="h-10 w-10 rounded-full bg-white border border-border text-text-secondary hover:text-primary hover:border-primary flex items-center justify-center transition-all shadow-sm btn-press" title="音声警告ON/OFF">
+                    <svg id="iconVolOn" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+                    <svg id="iconVolOff" class="hidden" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg>
+                </button>
+                
+                <div class="h-6 w-px bg-gray-300 mx-1"></div>
+
+                <div id="statusIndicator" class="px-4 py-2 rounded-full text-xs font-bold bg-gray-200 text-gray-500 shadow-inner">
+                    STANDBY
+                </div>
+            </div>
+        </header>
+
+        <div class="flex-1 overflow-y-auto p-4 md:p-6 pb-20">
+            <div class="max-w-7xl mx-auto grid grid-cols-1 xl:grid-cols-3 gap-6">
+                
+                <div class="xl:col-span-2 space-y-4">
+                    <div class="bg-white rounded-2xl shadow-float border border-border p-1.5 relative overflow-hidden group">
+                        
+                        <div class="relative bg-gray-100 rounded-xl overflow-hidden aspect-video flex items-center justify-center">
+                            <video id="webcam" class="absolute opacity-0 pointer-events-none" playsinline muted></video>
+                            <canvas id="outputCanvas" class="w-full h-full object-contain cursor-crosshair z-10"></canvas>
+                            <div id="flashOverlay" class="flash-effect"></div>
+
+                            <div id="loadingOverlay" class="absolute inset-0 flex flex-col items-center justify-center bg-white/90 z-30 transition-opacity">
+                                <div class="relative w-16 h-16 mb-4">
+                                    <div class="absolute inset-0 border-4 border-gray-100 rounded-full"></div>
+                                    <div class="absolute inset-0 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+                                </div>
+                                <p id="loadingText" class="text-text-primary font-bold">AIモデルを初期化中...</p>
+                            </div>
+
+                            <div id="startOverlay" class="hidden absolute inset-0 flex flex-col items-center justify-center glass z-30 fade-in">
+                                <div class="bg-white p-8 rounded-3xl shadow-xl text-center max-w-sm border border-border">
+                                    <div class="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-4 text-secondary">
+                                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+                                    </div>
+                                    <h3 class="text-xl font-bold text-text-primary mb-2">監視を開始</h3>
+                                    <p class="text-sm text-text-secondary mb-6 leading-relaxed">
+                                        カメラを起動します。侵入を検知すると<br>自動で写真を保存します。
+                                    </p>
+                                    <button id="startBtn" class="w-full bg-primary hover:bg-primary-hover text-white py-3 rounded-full font-bold shadow-glow transition-all btn-press">
+                                        カメラを起動
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div id="editModeHint" class="hidden absolute top-4 left-4 z-20 fade-in">
+                                <div class="bg-warning text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-3">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                                    <div>
+                                        <span class="font-bold text-sm block">エリア設定モード</span>
+                                        <span class="text-xs opacity-90">枠をドラッグして調整</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div id="alertOverlay" class="hidden absolute top-4 right-4 z-20">
+                                <div class="bg-danger text-white px-5 py-3 rounded-xl shadow-lg flex items-center gap-3 animate-bounce">
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                                    <span class="font-bold tracking-wide">WARNING: 侵入検知</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex gap-4">
+                        <button id="toggleEditBtn" class="flex-1 bg-white border border-border hover:border-gray-300 text-text-primary py-3 rounded-xl shadow-sm transition-all font-bold flex items-center justify-center gap-2 btn-press" disabled>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                            <span>エリア設定</span>
+                        </button>
+                        <button id="stopBtn" class="hidden flex-1 bg-white border-2 border-red-100 text-red-500 hover:bg-red-50 py-3 rounded-xl shadow-sm transition-all font-bold items-center justify-center gap-2 btn-press">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>
+                            監視を停止
+                        </button>
+                    </div>
+                </div>
+
+                <div class="space-y-6">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="bg-white p-5 rounded-2xl shadow-soft border border-border">
+                            <div class="flex items-center gap-2 mb-2">
+                                <div class="w-2 h-2 rounded-full bg-blue-500"></div>
+                                <span class="text-xs font-bold text-text-secondary uppercase">検知人数</span>
+                            </div>
+                            <div class="flex items-end gap-2">
+                                <span id="personCountDisplay" class="text-3xl font-black text-text-primary leading-none">0</span>
+                                <span class="text-sm text-text-secondary mb-1">名</span>
+                            </div>
+                        </div>
+                        
+                        <div class="bg-white p-5 rounded-2xl shadow-soft border border-border transition-colors duration-300" id="statusCard">
+                            <div class="flex items-center gap-2 mb-2">
+                                <div id="statusDot" class="w-2 h-2 rounded-full bg-green-500 transition-colors"></div>
+                                <span class="text-xs font-bold text-text-secondary uppercase">状態</span>
+                            </div>
+                            <div class="flex items-end gap-2">
+                                <span id="statusText" class="text-xl font-bold text-green-600 leading-none transition-colors">正常</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-2xl shadow-soft border border-border flex flex-col h-[400px] xl:h-[calc(100%-140px)] overflow-hidden">
+                        <div class="p-4 border-b border-border bg-gray-50 flex justify-between items-center">
+                            <h3 class="font-bold text-sm text-text-primary flex items-center gap-2">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+                                システムログ
+                            </h3>
+                            <span class="text-[10px] bg-white border border-border px-2 py-0.5 rounded text-text-secondary">Realtime</span>
+                        </div>
+                        <div id="logContainer" class="flex-1 overflow-y-auto p-4 space-y-3 font-mono text-xs bg-white">
+                            <div id="noLogsMsg" class="h-full flex flex-col items-center justify-center text-text-secondary opacity-50">
+                                <p>ログはありません</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <div id="historyModal" class="hidden fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true">
+        <div class="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
+            <div class="fixed inset-0 transition-opacity bg-slate-900/80 backdrop-blur-sm" id="historyBackdrop"></div>
+            <span class="hidden sm:inline-block sm:align-middle sm:h-screen">&#8203;</span>
+            <div class="inline-block align-bottom bg-gray-50 rounded-2xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:align-middle sm:max-w-4xl w-full border border-border max-h-[80vh] flex flex-col">
+                <div class="bg-white px-6 py-4 border-b border-border flex justify-between items-center sticky top-0 z-10">
+                    <h3 class="text-lg font-bold text-text-primary flex items-center gap-2">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                        侵入検知ログ履歴
+                    </h3>
+                    <div class="flex items-center gap-3">
+                        <button id="downloadAllBtn" class="hidden text-xs font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-2 rounded-lg transition-colors flex items-center gap-1">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                            すべて保存(ZIP)
+                        </button>
+                        <button id="closeHistoryBtn" class="text-gray-400 hover:text-gray-600 p-2 rounded-full hover:bg-gray-100">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="p-6 overflow-y-auto flex-1">
+                    <div id="galleryGrid" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                        </div>
+                    <div id="emptyGalleryMsg" class="flex flex-col items-center justify-center py-20 text-text-secondary opacity-60">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" class="mb-4"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+                        <p>保存された写真はありません</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="aboutModal" class="hidden fixed inset-0 z-50 overflow-y-auto">
+        <div class="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
+            <div class="fixed inset-0 transition-opacity bg-slate-900/60 backdrop-blur-sm" id="modalBackdrop"></div>
+            <span class="hidden sm:inline-block sm:align-middle sm:h-screen">&#8203;</span>
+            <div class="inline-block align-bottom bg-white rounded-2xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:align-middle sm:max-w-md w-full border border-border">
+                <div class="p-6">
+                    <h3 class="text-lg font-bold text-text-primary mb-2">このアプリについて</h3>
+                    <p class="text-sm text-text-secondary">AIが立ち入り禁止エリアを監視し、侵入を検知すると自動で写真を記録します。</p>
+                </div>
+                <div class="bg-gray-50 px-6 py-4 flex flex-row-reverse">
+                    <button type="button" id="closeModalBtn" class="bg-text-primary text-white px-6 py-2 rounded-xl text-sm font-bold">閉じる</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- 設定値 ---
+        const INITIAL_DANGER_ZONE = { x: 0.5, y: 0.2, width: 0.45, height: 0.6 };
+        let dangerZone = { ...INITIAL_DANGER_ZONE };
+        const SOUND_INTERVAL = 3000;
+        const CAPTURE_COOLDOWN = 3000;
+        const DB_NAME = 'SecurityCamDB';
+        const STORE_NAME = 'captures';
+        const MAX_STORED_IMAGES = 30;
+
+        // --- DOM要素 ---
+        const video = document.getElementById('webcam');
+        const canvas = document.getElementById('outputCanvas');
+        const ctx = canvas.getContext('2d');
+        const flashOverlay = document.getElementById('flashOverlay');
+        const loadingOverlay = document.getElementById('loadingOverlay');
+        const startOverlay = document.getElementById('startOverlay');
+        const alertOverlay = document.getElementById('alertOverlay');
+        const editModeHint = document.getElementById('editModeHint');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const toggleEditBtn = document.getElementById('toggleEditBtn');
+        const soundToggleBtn = document.getElementById('soundToggleBtn');
+        const iconVolOn = document.getElementById('iconVolOn');
+        const iconVolOff = document.getElementById('iconVolOff');
+        const personCountDisplay = document.getElementById('personCountDisplay');
+        const statusText = document.getElementById('statusText');
+        const statusCard = document.getElementById('statusCard');
+        const statusDot = document.getElementById('statusDot');
+        const logContainer = document.getElementById('logContainer');
+        const noLogsMsg = document.getElementById('noLogsMsg');
+        const storageModeLabel = document.getElementById('storageModeLabel');
+        const storageModeDesc = document.getElementById('storageModeDesc');
+
+        const historyBtn = document.getElementById('historyBtn');
+        const historyModal = document.getElementById('historyModal');
+        const closeHistoryBtn = document.getElementById('closeHistoryBtn');
+        const historyBackdrop = document.getElementById('historyBackdrop');
+        const galleryGrid = document.getElementById('galleryGrid');
+        const emptyGalleryMsg = document.getElementById('emptyGalleryMsg');
+        const badgeCount = document.getElementById('badgeCount');
+        const downloadAllBtn = document.getElementById('downloadAllBtn'); // New
+        
+        const aboutBtnSidebar = document.getElementById('aboutBtnSidebar');
+        const aboutModal = document.getElementById('aboutModal');
+        const closeModalBtn = document.getElementById('closeModalBtn');
+        const modalBackdrop = document.getElementById('modalBackdrop');
+
+        // --- 状態変数 ---
+        let model = null;
+        let isMonitoring = false;
+        let isEditMode = false;
+        let soundEnabled = true;
+        let lastAlertTime = 0;
+        let lastCaptureTime = 0;
+        let animationId = null;
+        let capturedImages = []; 
+        let db = null;
+        let useMemoryOnly = false; // ローカル用フォールバックモード
+
+        let dragHandle = null;
+        let isDragging = false;
+        let dragStartPos = { x: 0, y: 0 };
+        let dragStartZone = null;
+        const HANDLE_SIZE = 12;
+
+        // --- Storage Logic (Hybrid) ---
+        function initDB() {
+            return new Promise((resolve, reject) => {
+                if (window.location.protocol === 'file:') {
+                    console.warn("Detected local file execution. IndexedDB might be blocked.");
+                    useMemoryOnly = true;
+                    updateStorageStatus();
+                    resolve(null);
+                    return;
+                }
+
+                const request = indexedDB.open(DB_NAME, 1);
+                request.onupgradeneeded = (event) => {
+                    const db = event.target.result;
+                    if (!db.objectStoreNames.contains(STORE_NAME)) {
+                        const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+                        store.createIndex('time', 'time', { unique: false });
+                    }
+                };
+                request.onsuccess = (event) => {
+                    db = event.target.result;
+                    useMemoryOnly = false;
+                    updateStorageStatus();
+                    loadImagesFromDB();
+                    resolve(db);
+                };
+                request.onerror = (event) => {
+                    console.error("IndexedDB blocked/error. Falling back to memory.", event);
+                    useMemoryOnly = true;
+                    updateStorageStatus();
+                    resolve(null);
+                };
+            });
+        }
+
+        function updateStorageStatus() {
+            if (useMemoryOnly) {
+                storageModeLabel.textContent = "一時保存モード";
+                storageModeLabel.className = "text-xs font-bold text-orange-600";
+                storageModeDesc.textContent = "ローカル実行中。リロードで写真は消去されます。";
+                addLog("ローカル実行を検知: 一時保存モードで動作中", "warn");
+            } else {
+                storageModeLabel.textContent = "データベース保存";
+                storageModeLabel.className = "text-xs font-bold text-green-600";
+                storageModeDesc.textContent = "写真はブラウザ内に永続保存されます。";
+            }
+        }
+
+        function saveImage(imageData) {
+            const imageObj = {
+                id: Date.now(),
+                time: new Date().toLocaleString(),
+                url: imageData
+            };
+
+            capturedImages.unshift(imageObj);
+            
+            if (!useMemoryOnly && db) {
+                const transaction = db.transaction([STORE_NAME], 'readwrite');
+                const store = transaction.objectStore(STORE_NAME);
+                store.count().onsuccess = (e) => {
+                    if (e.target.result >= MAX_STORED_IMAGES) {
+                         store.getAllKeys().onsuccess = (evt) => {
+                            const keys = evt.target.result;
+                            if (keys.length > 0) store.delete(keys[0]);
+                         };
+                    }
+                    store.add(imageObj);
+                };
+            }
+            updateBadge();
+        }
+
+        function loadImagesFromDB() {
+            if (useMemoryOnly || !db) return;
+            const transaction = db.transaction([STORE_NAME], 'readonly');
+            const store = transaction.objectStore(STORE_NAME);
+            const request = store.getAll();
+            
+            request.onsuccess = (event) => {
+                capturedImages = event.target.result.sort((a, b) => b.id - a.id);
+                updateBadge();
+            };
+        }
+
+        // --- Export Functions ---
+        function downloadSingleImage(imgObj) {
+            const link = document.createElement('a');
+            link.href = imgObj.url;
+            link.download = `capture_${imgObj.id}.jpg`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        function downloadAllImages() {
+            if (capturedImages.length === 0) return;
+            
+            const zip = new JSZip();
+            const folder = zip.folder("security_captures");
+            
+            addLog("ZIPファイルの作成を開始しました...", "info");
+            
+            capturedImages.forEach(img => {
+                // Remove Data URL prefix to get raw base64
+                const data = img.url.split(',')[1];
+                folder.file(`capture_${img.id}.jpg`, data, {base64: true});
+            });
+
+            zip.generateAsync({type:"blob"}).then(function(content) {
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(content);
+                link.download = `captures_${Date.now()}.zip`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                addLog("ZIPファイルのダウンロードを開始しました", "success");
+            });
+        }
+
+        downloadAllBtn.addEventListener('click', downloadAllImages);
+
+
+        // --- Helper Functions ---
+        function addLog(message, type = 'info') {
+            if (noLogsMsg) noLogsMsg.style.display = 'none';
+            const time = new Date().toLocaleTimeString('ja-JP');
+            const div = document.createElement('div');
+            div.className = 'flex gap-3 py-1 border-b border-gray-50 last:border-0 fade-in items-start';
+            let colorClass = 'text-text-primary';
+            let iconColor = 'bg-gray-300';
+            if (type === 'error') { colorClass = 'text-red-600'; iconColor = 'bg-red-500'; }
+            if (type === 'success') { colorClass = 'text-green-600'; iconColor = 'bg-green-500'; }
+            if (type === 'warn') { colorClass = 'text-orange-500'; iconColor = 'bg-orange-400'; }
+            if (type === 'capture') { colorClass = 'text-blue-600'; iconColor = 'bg-blue-500'; }
+            div.innerHTML = `
+                <span class="w-2 h-2 rounded-full ${iconColor} mt-1.5 flex-shrink-0"></span>
+                <div class="flex flex-col min-w-0">
+                    <span class="${colorClass} text-xs leading-relaxed break-words">${message}</span>
+                    <span class="text-[10px] text-gray-400 font-mono">${time}</span>
+                </div>`;
+            logContainer.prepend(div);
+        }
+
+        function speakWarning() {
+            if (!soundEnabled) return;
+            const now = Date.now();
+            if (now - lastAlertTime < SOUND_INTERVAL) return;
+            const utterance = new SpeechSynthesisUtterance("警告。侵入者を検知しました。");
+            utterance.lang = 'ja-JP';
+            window.speechSynthesis.speak(utterance);
+            lastAlertTime = now;
+        }
+
+        function captureEvidence() {
+            const now = Date.now();
+            if (now - lastCaptureTime < CAPTURE_COOLDOWN) return;
+            if (canvas.width === 0 || canvas.height === 0) return;
+
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+            saveImage(dataUrl);
+
+            lastCaptureTime = now;
+            addLog("写真を撮影し保存しました", "capture");
+            
+            flashOverlay.classList.remove('animate-flash');
+            void flashOverlay.offsetWidth;
+            flashOverlay.classList.add('animate-flash');
+        }
+
+        function updateBadge() {
+            if (capturedImages.length > 0) {
+                badgeCount.textContent = capturedImages.length;
+                badgeCount.classList.remove('hidden');
+                downloadAllBtn.classList.remove('hidden'); // Show download btn
+            } else {
+                badgeCount.classList.add('hidden');
+                downloadAllBtn.classList.add('hidden');
+            }
+        }
+
+        function renderGallery() {
+            galleryGrid.innerHTML = '';
+            if (capturedImages.length === 0) {
+                emptyGalleryMsg.classList.remove('hidden');
+                downloadAllBtn.classList.add('hidden');
+                return;
+            }
+            emptyGalleryMsg.classList.add('hidden');
+            downloadAllBtn.classList.remove('hidden');
+
+            capturedImages.forEach(img => {
+                const item = document.createElement('div');
+                item.className = 'group relative aspect-video bg-gray-100 rounded-lg overflow-hidden border border-border';
+                
+                // Image
+                const imgEl = document.createElement('img');
+                imgEl.src = img.url;
+                imgEl.className = "w-full h-full object-cover transition-transform group-hover:scale-105 cursor-pointer";
+                imgEl.onclick = () => {
+                    const w = window.open('about:blank');
+                    const image = new Image();
+                    image.src = img.url;
+                    w.document.write(image.outerHTML);
+                };
+
+                // Individual Download Button
+                const dlBtn = document.createElement('button');
+                dlBtn.className = "absolute top-2 right-2 p-2 bg-white/90 hover:bg-white text-gray-700 rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-opacity z-10";
+                dlBtn.title = "この画像を保存";
+                dlBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>`;
+                dlBtn.onclick = (e) => {
+                    e.stopPropagation(); // Prevent opening image tab
+                    downloadSingleImage(img);
+                };
+
+                // Time label
+                const label = document.createElement('div');
+                label.className = "absolute bottom-0 left-0 right-0 bg-black/60 p-1 pointer-events-none";
+                label.innerHTML = `<p class="text-[10px] text-white text-center font-mono">${img.time}</p>`;
+
+                item.appendChild(imgEl);
+                item.appendChild(dlBtn);
+                item.appendChild(label);
+                galleryGrid.appendChild(item);
+            });
+        }
+
+        // --- Core Logic ---
+        async function init() {
+            addLog("システム初期化中...", "info");
+            await initDB();
+            try {
+                model = await cocoSsd.load();
+                loadingOverlay.classList.add('hidden');
+                startOverlay.classList.remove('hidden');
+                addLog("AIモデル準備完了", "success");
+            } catch (err) {
+                console.error(err);
+                addLog("モデル読込失敗", "error");
+            }
+        }
+
+        async function detectFrame() {
+            if (!video.srcObject) return;
+            if (video.readyState !== 4) {
+                animationId = requestAnimationFrame(detectFrame);
+                return;
+            }
+
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            const zonePx = {
+                x: canvas.width * dangerZone.x,
+                y: canvas.height * dangerZone.y,
+                w: canvas.width * dangerZone.width,
+                h: canvas.height * dangerZone.height
+            };
+
+            if (isEditMode) {
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.clearRect(zonePx.x, zonePx.y, zonePx.w, zonePx.h);
+                ctx.drawImage(video, zonePx.x, zonePx.y, zonePx.w, zonePx.h, zonePx.x, zonePx.y, zonePx.w, zonePx.h);
+                ctx.strokeStyle = '#FBBF24'; 
+                ctx.lineWidth = 3;
+                ctx.setLineDash([6, 4]);
+                ctx.strokeRect(zonePx.x, zonePx.y, zonePx.w, zonePx.h);
+                ctx.setLineDash([]);
+                ctx.fillStyle = '#FFFFFF';
+                const drawHandle = (cx, cy) => { ctx.beginPath(); ctx.arc(cx, cy, 6, 0, 2 * Math.PI); ctx.fill(); };
+                drawHandle(zonePx.x, zonePx.y);
+                drawHandle(zonePx.x + zonePx.w, zonePx.y + zonePx.h);
+                ctx.fillStyle = '#FBBF24';
+                ctx.font = '700 16px sans-serif';
+                ctx.fillText("エリア調整中", zonePx.x, zonePx.y - 10);
+            } else {
+                ctx.strokeStyle = 'rgba(255, 75, 75, 0.8)';
+                ctx.lineWidth = 3;
+                ctx.strokeRect(zonePx.x, zonePx.y, zonePx.w, zonePx.h);
+                ctx.fillStyle = 'rgba(255, 75, 75, 0.15)';
+                ctx.fillRect(zonePx.x, zonePx.y, zonePx.w, zonePx.h);
+                ctx.fillStyle = '#FF4B4B';
+                ctx.font = 'bold 14px sans-serif';
+                ctx.fillText("禁止エリア", zonePx.x, zonePx.y - 10);
+
+                if (isMonitoring) {
+                    let currentPersonCount = 0;
+                    let intrusionDetected = false;
+                    try {
+                        const predictions = await model.detect(video);
+                        predictions.forEach(prediction => {
+                            if (prediction.class === 'person') {
+                                currentPersonCount++;
+                                const [x, y, w, h] = prediction.bbox;
+                                ctx.strokeStyle = '#06C755';
+                                ctx.lineWidth = 2;
+                                ctx.strokeRect(x, y, w, h);
+                                const cx = x + w / 2;
+                                const cy = y + h / 2;
+                                if (cx > zonePx.x && cx < zonePx.x + zonePx.w &&
+                                    cy > zonePx.y && cy < zonePx.y + zonePx.h) {
+                                    intrusionDetected = true;
+                                    ctx.strokeStyle = '#FF4B4B';
+                                    ctx.lineWidth = 5;
+                                    ctx.strokeRect(x, y, w, h);
+                                }
+                            }
+                        });
+                    } catch (e) { console.error(e); }
+
+                    personCountDisplay.textContent = currentPersonCount;
+                    if (intrusionDetected) {
+                        alertOverlay.classList.remove('hidden');
+                        statusText.textContent = "侵入検知";
+                        statusText.className = "text-xl font-bold text-red-600";
+                        statusCard.className = "bg-red-50 p-5 rounded-2xl shadow-soft border border-red-200";
+                        statusDot.className = "w-2 h-2 rounded-full bg-red-500";
+                        speakWarning();
+                        captureEvidence();
+                    } else {
+                        alertOverlay.classList.add('hidden');
+                        statusText.textContent = "正常";
+                        statusText.className = "text-xl font-bold text-green-600";
+                        statusCard.className = "bg-white p-5 rounded-2xl shadow-soft border border-border";
+                        statusDot.className = "w-2 h-2 rounded-full bg-green-500";
+                    }
+                }
+            }
+            animationId = requestAnimationFrame(detectFrame);
+        }
+
+        // --- Mouse Events ---
+        function getMousePos(e) {
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            return { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
+        }
+        function getHandleAt(pos) {
+            const z = { x: canvas.width * dangerZone.x, y: canvas.height * dangerZone.y, w: canvas.width * dangerZone.width, h: canvas.height * dangerZone.height };
+            const h = HANDLE_SIZE + 10;
+            if (Math.abs(pos.x - z.x) < h && Math.abs(pos.y - z.y) < h) return 'nw';
+            if (Math.abs(pos.x - (z.x+z.w)) < h && Math.abs(pos.y - (z.y+z.h)) < h) return 'se';
+            if (pos.x > z.x && pos.x < z.x + z.w && pos.y > z.y && pos.y < z.y + z.h) return 'move';
+            return null;
+        }
+        canvas.addEventListener('mousedown', (e) => {
+            if (!isEditMode) return;
+            const pos = getMousePos(e);
+            dragHandle = getHandleAt(pos);
+            if (dragHandle) { isDragging = true; dragStartPos = pos; dragStartZone = { ...dangerZone }; }
+        });
+        canvas.addEventListener('mousemove', (e) => {
+            if (!isEditMode) return;
+            const pos = getMousePos(e);
+            if (!isDragging) {
+                const handle = getHandleAt(pos);
+                canvas.style.cursor = handle === 'move' ? 'move' : (handle ? 'nwse-resize' : 'default');
+                return;
+            }
+            const dx = (pos.x - dragStartPos.x) / canvas.width;
+            const dy = (pos.y - dragStartPos.y) / canvas.height;
+            let newZ = { ...dragStartZone };
+            if (dragHandle === 'move') { newZ.x += dx; newZ.y += dy; }
+            else if (dragHandle === 'nw') { newZ.x += dx; newZ.y += dy; newZ.width -= dx; newZ.height -= dy; }
+            else if (dragHandle === 'se') { newZ.width += dx; newZ.height += dy; }
+            if (newZ.width < 0.05) newZ.width = 0.05;
+            if (newZ.height < 0.05) newZ.height = 0.05;
+            dangerZone = newZ;
+        });
+        canvas.addEventListener('mouseup', () => { isDragging = false; dragHandle = null; });
+
+        // --- UI Events ---
+        startBtn.addEventListener('click', async () => {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 1280, height: 720 }, audio: false });
+                video.srcObject = stream;
+                video.onloadedmetadata = () => {
+                    video.play();
+                    isMonitoring = true;
+                    startOverlay.classList.add('hidden');
+                    stopBtn.classList.replace('hidden', 'flex');
+                    toggleEditBtn.removeAttribute('disabled');
+                    statusIndicator.textContent = "ACTIVE";
+                    statusIndicator.className = "px-4 py-2 rounded-full text-xs font-bold bg-green-100 text-green-600 shadow-sm";
+                    addLog("監視を開始しました", "success");
+                    detectFrame();
+                };
+            } catch (err) { alert("カメラの使用が許可されていません"); }
+        });
+
+        stopBtn.addEventListener('click', () => {
+            isMonitoring = false;
+            isEditMode = false;
+            editModeHint.classList.add('hidden');
+            cancelAnimationFrame(animationId);
+            if (video.srcObject) { video.srcObject.getTracks().forEach(t => t.stop()); video.srcObject = null; }
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            startOverlay.classList.remove('hidden');
+            stopBtn.classList.replace('flex', 'hidden');
+            toggleEditBtn.setAttribute('disabled', 'true');
+            statusIndicator.textContent = "STANDBY";
+            statusIndicator.className = "px-4 py-2 rounded-full text-xs font-bold bg-gray-200 text-gray-500";
+        });
+
+        toggleEditBtn.addEventListener('click', () => {
+            isEditMode = !isEditMode;
+            if (isEditMode) {
+                isMonitoring = false;
+                toggleEditBtn.innerHTML = `<span>設定完了</span>`;
+                toggleEditBtn.classList.replace('bg-white', 'bg-amber-50');
+                editModeHint.classList.remove('hidden');
+            } else {
+                isMonitoring = true;
+                toggleEditBtn.innerHTML = `<span>エリア設定</span>`;
+                toggleEditBtn.classList.replace('bg-amber-50', 'bg-white');
+                editModeHint.classList.add('hidden');
+            }
+        });
+
+        soundToggleBtn.addEventListener('click', () => {
+            soundEnabled = !soundEnabled;
+            if (soundEnabled) {
+                soundToggleBtn.classList.replace('text-text-secondary', 'text-white');
+                soundToggleBtn.classList.replace('bg-white', 'bg-primary');
+                iconVolOn.classList.remove('hidden'); iconVolOff.classList.add('hidden');
+            } else {
+                soundToggleBtn.classList.replace('text-white', 'text-text-secondary');
+                soundToggleBtn.classList.replace('bg-primary', 'bg-white');
+                iconVolOn.classList.add('hidden'); iconVolOff.classList.remove('hidden');
+            }
+        });
+
+        const toggleHistory = (show) => {
+            if(show) renderGallery();
+            historyModal.classList.toggle('hidden', !show);
+        };
+        historyBtn.addEventListener('click', () => toggleHistory(true));
+        closeHistoryBtn.addEventListener('click', () => toggleHistory(false));
+        historyBackdrop.addEventListener('click', () => toggleHistory(false));
+
+        const toggleAbout = (show) => aboutModal.classList.toggle('hidden', !show);
+        aboutBtnSidebar.addEventListener('click', () => toggleAbout(true));
+        closeModalBtn.addEventListener('click', () => toggleAbout(false));
+        modalBackdrop.addEventListener('click', () => toggleAbout(false));
+
+        window.addEventListener('load', init);
+    </script>
+</body>
+</html>
